@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+
+  zookeeper:
+    image: ${REPOSITORY:-confluentinc}/cp-zookeeper:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka1:
+    image: ${REPOSITORY:-confluentinc}/cp-server:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: kafka1
+    ports:
+      - 9092:9092
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "true"
+
+  kafka2:
+    image: ${REPOSITORY:-confluentinc}/cp-server:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: kafka2
+    ports:
+      - 9093:9093
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka3:
+    image: ${REPOSITORY:-confluentinc}/cp-server:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: kafka3
+    ports:
+      - 9094:9094
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  schema-registry:
+    image: ${REPOSITORY:-confluentinc}/cp-schema-registry:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: schema-registry
+    depends_on:
+      - kafka1
+    ports:
+      - 8081:8081
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29093,kafka3:29094
+
+  ksqldb-server:
+    image: ${REPOSITORY:-confluentinc}/cp-ksqldb-server:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: ksqldb-server
+    ports:
+      - 8088:8088
+      - 8083:8083
+    depends_on:
+      - kafka1
+      - schema-registry
+    environment:
+      KSQL_BOOTSTRAP_SERVERS: kafka1:29092
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_CONNECT_REST_ADVERTISED_HOST_NAME: ksqldb-server
+      KSQL_CONNECT_REST_PORT: 8083
+      KSQL_CONNECT_GROUP_ID: ksqldb-kafka-connect-group-01
+      KSQL_CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      KSQL_CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KSQL_CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      KSQL_CONNECT_PLUGIN_PATH: '/usr/share/java,/usr/share/confluent-hub-components/,/data/connect-jars'
+    volumes:
+      - ./data:/data
+      - ./ksql/ksql-clickstream-demo/demo:/scripts
+      - ./ksql/ksql-clickstream-demo/demo/connect-config:/usr/share/java/null-smt
+      - ./confluent-hub-components:/usr/share/confluent-hub-components
+
+  ksqldb-cli:
+    image: ${REPOSITORY:-confluentinc}/cp-ksqldb-cli:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: ksqldb-cli
+    depends_on:
+      - ksqldb-server
+    entrypoint: /bin/sh
+    tty: true
+    volumes:
+      - ./ksql/ksql-clickstream-demo/demo:/scripts
+
+  control-center:
+    image: ${REPOSITORY:-confluentinc}/cp-enterprise-control-center:${CONFLUENT_DOCKER_TAG:-7.5.0}
+    container_name: control-center
+    ports:
+      - 9021:9021
+    depends_on:
+      - kafka1
+      - schema-registry
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29093,kafka3:29094
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONTROL_CENTER_KSQL_KSQLDB1_URL: http://ksqldb-server:8088
+      CONTROL_CENTER_KSQL_KSQLDB1_ADVERTISED_URL: http://localhost:8088
+      CONTROL_CENTER_CONNECT_CONNECT_DEFAULT_CLUSTER: http://ksqldb-server:8083
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.3.0
+    container_name: elasticsearch
+    ports:
+      - 9200:9200
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+    volumes:
+      - ./ksql/ksql-clickstream-demo/demo:/scripts
+
+  grafana:
+    image: grafana/grafana:5.2.4
+    container_name: grafana
+    ports:
+      - 3000:3000
+    environment:
+      GF_SECURITY_ADMIN_USER: user
+      GF_SECURITY_ADMIN_PASSWORD: user
+    volumes:
+      - ./ksql/ksql-clickstream-demo/demo:/scripts
+
+  mongo:
+    image: mongo:6.0
+    container_name: mongo
+    ports:
+      - 27017:27017
+    volumes:
+      - mongo_data:/data/db
+
+  airflow:
+    image: apache/airflow:2.8.1
+    container_name: airflow
+    restart: always
+    depends_on:
+      - mongo
+    ports:
+      - 8080:8080
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: sqlite:////usr/local/airflow/airflow.db
+      AIRFLOW__WEBSERVER__SECRET_KEY: test_secret
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    command: bash -c "airflow db init && airflow webserver"
+
+  tools:
+    image: cnfltraining/training-tools:5.4
+    container_name: tools
+    entrypoint: /bin/bash
+    tty: true
+
+volumes:
+  mongo_data:

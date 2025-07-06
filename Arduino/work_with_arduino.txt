@@ -1,0 +1,4 @@
+cat /home/user/Projects/robocar_arduino/Arduino/WiFiCar/WiFiCar.ino
+nano /home/user/Projects/robocar_arduino/Arduino/WiFiCar/WiFiCar.ino
+arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi /home/user/Projects/robocar_arduino/Arduino/WiFiCar
+arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:renesas_uno:unor4wifi /home/user/Projects/robocar_arduino/Arduino/WiFiCar

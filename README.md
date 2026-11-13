@@ -15,6 +15,8 @@ The Robocar is controlled via HTTP requests sent to the Arduino's IP address. Th
   - **`/right`**: Turn right
   - **``**: Start room scanning (first-time scan only, to map the room)
   
+  - **`/look?angle=N`**, **`/nod`**, **`/status`**: head (servo) commands for the Nanny robot, answer immediately; see [docs/head.md](docs/head.md)
+
   Example Command:
   - `http://192.168.100.236/forward` – Move the car forward.
 
